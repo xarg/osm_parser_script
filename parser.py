@@ -1,42 +1,73 @@
 #!/usr/bin/env python
-from imposm.parser import OSMParser
-from pyosm import OSMXMLFile, Node, Way
+import simplejson as json
+from lxml import etree
+from copy import deepcopy
 
 border_ways = {}
 border_nodes = {}
+relations_ways = {}
+relations = {}
+country_data_default = {
+    'type': "Feature",
+    'geometry': {
+        'type': 'Polygon',
+        "coordinates": []
+    },
+    'properties': {
+        'name': '',
+        'id': '',
+        'count': 0
+    }
+}
+countries_data = []
 
-node_ids = set()
+def generate_nodes(filename):
+    for action, elem in etree.iterparse(open(filename, 'rb'), tag="node"):
+        border_nodes[elem.get('id')] = (float(elem.get('lon')),
+                                        float(elem.get('lat')))
+def generate_relations(filename):
+    for action, elem in etree.iterparse(open(filename, 'rb'), tag="relation"):
+        ways = []
+        relation_id = elem.get('id')
+        country_name = ''
+        for child in elem.getchildren():
+            if child.tag == 'tag' and child.get('k') == 'NAME':
+                country_name = child.get('v')
+            if child.tag == 'member' and child.get('type') == 'way':
+                ways.append(child.get('ref'))
+        if country_name == '':
+            country_name = relation_id
 
-def parse_ways(ways):
-    for way in ways:
-        if 'border_type' in way[1] and way[1]['border_type'] == 'nation':
-            border_ways[way[0]] = Way({
-                'id': way[0],
-                'version': 1,
-                'visible': 'true',
-                'changeset': 1,
-            }, nodes=map(str, way[2]))
-            node_ids.update(way[2])
+        if country_name not in relations:
+            relations[country_name] = []
+            country_data = deepcopy(country_data_default)
+            country_data['properties']['name'] = country_name
+            country_data['properties']['id'] = relation_id
 
-def parse_coords(nodes):
-    for node in nodes:
-        if node[0] in node_ids:
-            border_nodes[node[0]] = Node({
-                'id': node[0],
-                'version': 1,
-                'changeset': 1,
-                'visible': 'true',
-                'user': 'sasha',
-                'lat': '%.15f' % node[1],
-                'lon': '%.15f' % node[2]
-            })
+        if relation_id not in relations_ways:
+            relations_ways[relation_id] = []
 
+        countries_data.append(country_data)
+        relations_ways[relation_id].extend(ways)
+
+def generate_ways(filename):
+    for action, elem in etree.iterparse(open(filename, 'rb'), tag="way"):
+        way_id = elem.get('id')
+        nodes = []
+        for child in elem.iterchildren():
+            if child.tag == 'nd' and child.get('ref') in border_nodes:
+                nodes.append(border_nodes[child.get('ref')])
+
+        for relation_id, way_ids in relations_ways.items():
+            if way_id in way_ids:
+                for country in countries_data:
+                    if country['properties']['id'] == relation_id:
+                        country['geometry']['coordinates'].append(nodes)
+                        country['properties']['count'] += len(nodes)
 
 def write(filename):
-    osm_file = OSMXMLFile()
-    osm_file.ways = border_ways
-    osm_file.nodes = border_nodes
-    osm_file.write(filename)
+    json.dump({"type": "FeatureCollection", "features": countries_data},
+                open(filename, 'wb'))
 
 def main():
     import argparse
@@ -48,8 +79,10 @@ def main():
                        help='Output .osm file.')
     args = arg_parser.parse_args()
     #Parse ways to extract border_nodes. Then get meta_data from border_nodes
-    OSMParser(concurrency=8, ways_callback=parse_ways).parse(args.src)
-    OSMParser(concurrency=8, coords_callback=parse_coords).parse(args.src)
+    generate_nodes(args.src)
+    generate_relations(args.src)
+    generate_ways(args.src)
+
     write(args.dst)
 
 if __name__ == '__main__': main()

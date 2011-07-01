@@ -4,6 +4,7 @@
 # Modifications by Christoph Lupprich (http://www.stopbeingcarbon.com)
 #
 import xml.sax
+from xml.sax.saxutils import XMLGenerator
 import logging
 log = logging.getLogger("pyosm")
 
@@ -100,7 +101,7 @@ class Relation(object):
             self.tags = {}
         else:
             self.tags = tags
-      
+
     def __cmp__(self, other):
         cmp_ref = cmp(self.tags.get('ref',''), other.tags.get('ref',''))
         if cmp_ref:
@@ -152,7 +153,7 @@ class OSMXMLFile(object):
             self.__parse()
         elif content:
             self.__parse(content)
-    
+
     def __get_member(self, id, type):
         if type == "node":
             obj = self.nodes.get(id)
@@ -186,7 +187,7 @@ class OSMXMLFile(object):
         # now fix up all the refereneces
         for way in self.ways.values():
             way.nodes = [self.__get_member(node_pl.id, 'node') for node_pl in way.nodes]
-              
+
         for relation in self.relations.values():
             relation.members = [(self.__get_member(obj_pl.id, obj_pl.type), obj_pl.role) for obj_pl in relation.members]
 
@@ -201,7 +202,7 @@ class OSMXMLFile(object):
         # now fix up all the references
         for way in self.ways.values():
             way.nodes = [self.__get_member(node_pl.id, 'node') for node_pl in way.nodes]
-              
+
         for relation in self.relations.values():
             types = {Node: 'node', Way: 'way', Relation: 'relation'}
             l = relation.members
@@ -212,11 +213,11 @@ class OSMXMLFile(object):
                     relation.members.append((obj, role))
                 else:
                     relation.members.append((self.__get_member(obj.id, t), role))
-        
+
     def write(self, fileobj):
         if type(fileobj) == str:
             fileobj = open(fileobj, 'wt')
-        handler = xml.sax.saxutils.XMLGenerator(fileobj, 'UTF-8')
+        handler = XMLGenerator(fileobj, 'UTF-8')
         handler.startDocument()
         handler.startElement('osm', self.osmattrs)
         handler.characters('\n')
@@ -242,7 +243,7 @@ class OSMXMLFile(object):
             handler.characters('\n')
             for node in way.nodes:
                 handler.characters('  ')
-                handler.startElement('nd', {'ref': str(node.id)})
+                handler.startElement('nd', {'ref': node})
                 handler.endElement('nd')
                 handler.characters('\n')
             for name, value in way.tags.items():
@@ -252,7 +253,7 @@ class OSMXMLFile(object):
                 handler.characters('\n')
             handler.endElement('way')
             handler.characters('\n')
-            
+
         for relationid in sorted(self.relations):
             relation = self.relations[relationid]
             if type(relation) == ObjectPlaceHolder:
@@ -305,11 +306,11 @@ class OSMXMLFileParser(xml.sax.ContentHandler):
         if name == 'node':
             if self.load_nodes:
                 self.curr_node = Node(attr=attrs)
-            
+
         elif name == 'way':
             if self.load_ways:
                 self.curr_way = Way(attr=attrs)
-            
+
         elif name == "relation":
             if self.load_relations:
                 assert self.curr_node is None, "curr_node (%r) is non-none" % (self.curr_node)
@@ -324,20 +325,20 @@ class OSMXMLFileParser(xml.sax.ContentHandler):
                 self.curr_way.tags[attrs['k']] = attrs['v']
             elif self.curr_relation:
                 self.curr_relation.tags[attrs['k']] = attrs['v']
-                
+
         elif name == "nd":
             if self.load_way_nodes:
                 assert self.curr_node is None, "curr_node (%r) is non-none" % (self.curr_node)
                 assert self.curr_way is not None, "curr_way is None"
                 self.curr_way.nodes.append(ObjectPlaceHolder(id=attrs['ref']))
-          
+
         elif name == "member":
             if self.load_relation_members:
                 assert self.curr_node is None, "curr_node (%r) is non-none" % (self.curr_node)
                 assert self.curr_way is None, "curr_way (%r) is non-none" % (self.curr_way)
                 assert self.curr_relation is not None, "curr_relation is None"
                 self.curr_relation.members.append(ObjectPlaceHolder(id=attrs['ref'], type=attrs['type'], role=attrs['role']))
-          
+
         elif name == "osm":
             self.curr_osmattrs = attrs
 
@@ -349,7 +350,7 @@ class OSMXMLFileParser(xml.sax.ContentHandler):
 
 
     def endElement(self, name):
-        
+
         if name == "node":
             if self.load_nodes:
                 if self.filterfunc:
@@ -358,7 +359,7 @@ class OSMXMLFileParser(xml.sax.ContentHandler):
                         return
                 self.containing_obj.nodes[self.curr_node.id] = self.curr_node
             self.curr_node = None
- 
+
         elif name == "way":
             if self.load_ways:
                 if self.filterfunc:
@@ -367,7 +368,7 @@ class OSMXMLFileParser(xml.sax.ContentHandler):
                         return
                 self.containing_obj.ways[self.curr_way.id] = self.curr_way
             self.curr_way = None
-        
+
         elif name == "relation":
             if self.load_relations:
                 if self.filterfunc:
@@ -382,7 +383,7 @@ class OSMXMLFileParser(xml.sax.ContentHandler):
             self.curr_osmtags = None
 
 
-#################### MAIN            
+#################### MAIN
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
     import sys
